@@ -23,6 +23,6 @@ permissions:
 
 jobs:
   freebsd:
-    uses: dylanmtaylor/artcraft-common-actions/.github/workflows/freebsd.yml@main
+    uses: storytold/craft-common-actions/.github/workflows/freebsd.yml@main
     with:
       craft-fonts-ref: abb83316d96aa59c1cf64784289e378fe9fa5695
