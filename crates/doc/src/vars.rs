@@ -152,13 +152,17 @@ fn civil(days: i64) -> (i64, u32, u32) {
 /// its cycle and whole cycles are added back as days (an i128 so the extremes can't overflow),
 /// which matches the proleptic Gregorian count the old hand-rolled code gave. 1970-01-01 is
 /// `num_days_from_ce` 719_163.
+///
+/// A day past the end of its month carries into the next one, as before chrono (`2019-02-30`
+/// is 2019-03-02: `parse_iso_date` accepts any day 1..=31): chrono places the 1st of the month
+/// and the rest of the days are added on. Only a month outside 1..=12 reads as 0.
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let (cycles, year) = (i128::from(y.div_euclid(400)), y.rem_euclid(400));
     i32::try_from(year)
         .ok()
-        .and_then(|year| chrono::NaiveDate::from_ymd_opt(year, m, d))
-        .and_then(|date| {
-            let days = i128::from(chrono::Datelike::num_days_from_ce(&date)) - 719_163 + cycles * 146_097;
+        .and_then(|year| chrono::NaiveDate::from_ymd_opt(year, m, 1))
+        .and_then(|first| {
+            let days = i128::from(chrono::Datelike::num_days_from_ce(&first)) - 719_163 + cycles * 146_097 + i128::from(d) - 1;
             i64::try_from(days).ok()
         })
         .unwrap_or(0)
@@ -324,6 +328,12 @@ mod tests {
         }
         // The extremes must not overflow or panic (i128 intermediates).
         let _ = (civil(i64::MAX), civil(i64::MIN), days_from_civil(i64::MAX, 12, 31), days_from_civil(i64::MIN, 1, 1));
+        // A day past the end of its month carries over, as before chrono, instead of reading as 1970.
+        assert_eq!(days_from_civil(2019, 2, 30), days_from_civil(2019, 3, 2));
+        assert_eq!(days_from_civil(2024, 2, 30), days_from_civil(2024, 3, 1));
+        assert_eq!(days_from_civil(2019, 4, 31), days_from_civil(2019, 5, 1));
+        assert_eq!(parse_iso_date("2019-02-30"), Some(1_551_484_800));
+        assert_eq!(parse_iso_date("2019-02-30T09:48:02Z"), parse_iso_date("2019-03-02T09:48:02Z"));
     }
 
     #[test]
