@@ -123,9 +123,12 @@ fn font_file(k: usize, f: &EmbeddedFont) -> (String, &'static str) {
 }
 
 /// An ISO 8601 UTC timestamp (`2026-10-13T09:30:00Z`) for Unix seconds `t`.
+/// A time outside chrono's range reads as the epoch.
 fn iso8601(t: i64) -> String {
+    use chrono::Datelike;
     let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default();
-    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    // `{:04}` rather than `%Y`, which writes a `+` before years past 9999.
+    format!("{:04}-{}", dt.year(), dt.format("%m-%dT%H:%M:%SZ"))
 }
 
 /// The package's `dcterms:modified`: the given time, else the document's last save or creation.
@@ -1572,6 +1575,8 @@ mod tests {
             (951_782_400, "2000-02-29T00:00:00Z"),
             (1_791_891_000, "2026-10-13T11:30:00Z"),
             (-86_400, "1969-12-31T00:00:00Z"),
+            // Years past 9999 keep the plain zero-padded year (no `+`).
+            (253_402_300_800, "10000-01-01T00:00:00Z"),
         ] {
             assert_eq!(iso8601(t), want);
         }
