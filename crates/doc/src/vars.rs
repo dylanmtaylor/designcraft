@@ -127,45 +127,41 @@ pub fn now() -> i64 {
 }
 
 /// (year, month 1–12, day 1–31) from days since 1970-01-01.
+///
+/// `NaiveDate` only covers about ±262143 years, but the system clock can run past it, so this
+/// stays exact for every `days`. The Gregorian calendar repeats every 400 years (146_097 days):
+/// chrono converts the day within its cycle and whole cycles go back into the year (an i128 so no
+/// `days` overflows), which matches the proleptic Gregorian answer the old hand-rolled code gave.
+/// 1970-01-01 is `num_days_from_ce` 719_163.
 fn civil(days: i64) -> (i64, u32, u32) {
-    // `NaiveDate` counts from 0001-01-01 (num_days_from_ce 1); 1970-01-01 is 719_163.
-    match days.checked_add(719_163).and_then(|n| i32::try_from(n).ok()).and_then(chrono::NaiveDate::from_num_days_from_ce_opt) {
-        Some(d) => (i64::from(chrono::Datelike::year(&d)), chrono::Datelike::month(&d), chrono::Datelike::day(&d)),
-        None => civil_fallback(days),
+    use chrono::Datelike;
+    let (cycles, rest) = (days.div_euclid(146_097), days.rem_euclid(146_097));
+    match i32::try_from(rest + 719_163).ok().and_then(chrono::NaiveDate::from_num_days_from_ce_opt) {
+        Some(d) => {
+            let y = i128::from(d.year()) + i128::from(cycles) * 400;
+            (i64::try_from(y).unwrap_or(if y < 0 { i64::MIN } else { i64::MAX }), d.month(), d.day())
+        }
+        // Unreachable: `rest + 719_163` is always a valid CE day.
+        None => (1970, 1, 1),
     }
 }
 
-/// [`civil`] for values outside `NaiveDate`'s range (Howard Hinnant's algorithm).
-fn civil_fallback(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (yoe + era * 400 + i64::from(m <= 2), m, d)
-}
-
-/// Days since 1970-01-01 of a civil date (inverse of [`civil`]).
+/// Days since 1970-01-01 of a civil date (inverse of [`civil`]), exact for any year.
+///
+/// The Gregorian calendar repeats every 400 years (146_097 days): chrono converts the year within
+/// its cycle and whole cycles are added back as days (an i128 so the extremes can't overflow),
+/// which matches the proleptic Gregorian count the old hand-rolled code gave. 1970-01-01 is
+/// `num_days_from_ce` 719_163.
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
-    // `NaiveDate` counts from 0001-01-01 (num_days_from_ce 1); 1970-01-01 is 719_163.
-    match i32::try_from(y).ok().and_then(|y| chrono::NaiveDate::from_ymd_opt(y, m, d)) {
-        Some(date) => i64::from(chrono::Datelike::num_days_from_ce(&date)) - 719_163,
-        None => days_from_civil_fallback(y, m, d),
-    }
-}
-
-/// [`days_from_civil`] for dates outside `NaiveDate`'s range (Howard Hinnant's algorithm).
-fn days_from_civil_fallback(y: i64, m: u32, d: u32) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y.rem_euclid(400);
-    let mp = i64::from(if m > 2 { m - 3 } else { m + 9 });
-    let doy = (153 * mp + 2) / 5 + i64::from(d) - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
+    let (cycles, year) = (i128::from(y.div_euclid(400)), y.rem_euclid(400));
+    i32::try_from(year)
+        .ok()
+        .and_then(|year| chrono::NaiveDate::from_ymd_opt(year, m, d))
+        .and_then(|date| {
+            let days = i128::from(chrono::Datelike::num_days_from_ce(&date)) - 719_163 + cycles * 146_097;
+            i64::try_from(days).ok()
+        })
+        .unwrap_or(0)
 }
 
 /// Unix seconds of an ISO 8601 timestamp such as `2019-12-16T09:48:02+01:00` (seconds, the
@@ -310,6 +306,24 @@ mod tests {
         assert_eq!(format_date(t, "MMMM d, yyyy h:mm aa"), "October 1, 2026 2:05 PM");
         assert_eq!(format_date(0, "MM/dd/yy"), "01/01/70");
         assert_eq!(format_date(951_782_400, "yyyy-MM-dd"), "2000-02-29");
+    }
+
+    #[test]
+    fn dates_beyond_chrono_range() {
+        // Past `NaiveDate`'s ±262143 the 400-year cycles carry the year; the clock can reach this,
+        // so keep the proleptic Gregorian date the old formula gave rather than the epoch, on both
+        // sides of the epoch. Values from the pre-chrono formula, through the public `format_date`.
+        assert_eq!(format_date(10_000_000_000_000, "yyyy-MM-dd HH:mm"), "318857-05-20 17:46");
+        assert_eq!(format_date(-8_334_659_289_600, "yyyy-MM-dd"), "-262145-03-01");
+        // `days_from_civil` is exact and inverts `civil` past the range, both sides.
+        for (y, m, d, days) in
+            [(262_144i64, 1u32, 1u32, 95_026_602i64), (300_000, 6, 15, 108_853_388), (-262_145, 3, 1, -96_465_964), (-300_000, 2, 29, -110_292_219)]
+        {
+            assert_eq!(days_from_civil(y, m, d), days, "{y}-{m}-{d}");
+            assert_eq!(civil(days), (y, m, d), "{days}");
+        }
+        // The extremes must not overflow or panic (i128 intermediates).
+        let _ = (civil(i64::MAX), civil(i64::MIN), days_from_civil(i64::MAX, 12, 31), days_from_civil(i64::MIN, 1, 1));
     }
 
     #[test]
