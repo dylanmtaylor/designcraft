@@ -126,8 +126,17 @@ pub fn now() -> i64 {
     }
 }
 
-/// (year, month 1–12, day 1–31) from days since 1970-01-01 (H. Hinnant's public-domain algorithm).
+/// (year, month 1–12, day 1–31) from days since 1970-01-01.
 fn civil(days: i64) -> (i64, u32, u32) {
+    // `NaiveDate` counts from 0001-01-01 (num_days_from_ce 1); 1970-01-01 is 719_163.
+    match days.checked_add(719_163).and_then(|n| i32::try_from(n).ok()).and_then(chrono::NaiveDate::from_num_days_from_ce_opt) {
+        Some(d) => (i64::from(chrono::Datelike::year(&d)), chrono::Datelike::month(&d), chrono::Datelike::day(&d)),
+        None => civil_fallback(days),
+    }
+}
+
+/// [`civil`] for values outside `NaiveDate`'s range (Howard Hinnant's algorithm).
+fn civil_fallback(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -141,6 +150,15 @@ fn civil(days: i64) -> (i64, u32, u32) {
 
 /// Days since 1970-01-01 of a civil date (inverse of [`civil`]).
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    // `NaiveDate` counts from 0001-01-01 (num_days_from_ce 1); 1970-01-01 is 719_163.
+    match i32::try_from(y).ok().and_then(|y| chrono::NaiveDate::from_ymd_opt(y, m, d)) {
+        Some(date) => i64::from(chrono::Datelike::num_days_from_ce(&date)) - 719_163,
+        None => days_from_civil_fallback(y, m, d),
+    }
+}
+
+/// [`days_from_civil`] for dates outside `NaiveDate`'s range (Howard Hinnant's algorithm).
+fn days_from_civil_fallback(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y.rem_euclid(400);

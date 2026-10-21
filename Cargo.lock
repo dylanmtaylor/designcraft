@@ -684,6 +684,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -936,6 +945,7 @@ name = "designcraft"
 version = "0.10.0"
 dependencies = [
  "arboard",
+ "chrono",
  "designcraft-engine",
  "designcraft-ui-egui",
  "eframe",
@@ -1005,6 +1015,7 @@ dependencies = [
 name = "designcraft-doc"
 version = "0.10.0"
 dependencies = [
+ "chrono",
  "designcraft-color",
  "designcraft-geom",
  "proptest",
@@ -1056,6 +1067,7 @@ dependencies = [
 name = "designcraft-epub"
 version = "0.10.0"
 dependencies = [
+ "chrono",
  "designcraft-color",
  "designcraft-doc",
  "zip",
@@ -1146,6 +1158,7 @@ dependencies = [
 name = "designcraft-pdf"
 version = "0.10.0"
 dependencies = [
+ "chrono",
  "craft-pdf",
  "designcraft-color",
  "designcraft-compose",
@@ -1168,6 +1181,7 @@ dependencies = [
 name = "designcraft-pptx"
 version = "0.10.0"
 dependencies = [
+ "chrono",
  "designcraft-color",
  "designcraft-compose",
  "designcraft-doc",

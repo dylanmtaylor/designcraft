@@ -438,18 +438,9 @@ fn date_time(t: i64) -> krilla::metadata::DateTime {
 
 /// Unix seconds (UTC) → (year, month, day, hour, minute, second), proleptic Gregorian.
 pub(crate) fn civil(t: i64) -> (i64, u8, u8, u8, u8, u8) {
-    let days = t.div_euclid(86_400);
-    let secs = t.rem_euclid(86_400);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month as u8, day as u8, (secs / 3600) as u8, (secs / 60 % 60) as u8, (secs % 60) as u8)
+    use chrono::{Datelike, Timelike};
+    let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default();
+    (i64::from(dt.year()), dt.month() as u8, dt.day() as u8, dt.hour() as u8, dt.minute() as u8, dt.second() as u8)
 }
 
 /// A successful conversion and its name-independent diagnostic. Replayed once for each asset.
