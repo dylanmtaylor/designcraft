@@ -290,11 +290,25 @@ fn core(p: &Package) -> String {
     s
 }
 
-/// Unix seconds → UTC civil date and time (proleptic Gregorian).
+/// Unix seconds → UTC civil date and time (proleptic Gregorian), year clamped to the W3CDTF
+/// `0..=9999` range. A time outside chrono's year range still converts (the calendar repeats every
+/// 400 years, so the instant is moved into range by whole cycles and only the year is carried,
+/// matching the old `civil`), then the year is clamped — never a silent reset to the epoch.
 fn civil(t: i64) -> (i64, u32, u32, u32, u32, u32) {
     use chrono::{Datelike, Timelike};
-    let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default();
-    (i64::from(dt.year()).clamp(0, 9999), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second())
+    let (days, sod) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    let (cycles, rest) = (days.div_euclid(146_097), days.rem_euclid(146_097));
+    // `rest + 719_163` (1970-01-01 is CE day 719_163) is always a valid CE day, and `sod` < 86_400.
+    let date = i32::try_from(rest + 719_163).ok().and_then(chrono::NaiveDate::from_num_days_from_ce_opt);
+    let time = u32::try_from(sod).ok().and_then(|s| chrono::NaiveTime::from_num_seconds_from_midnight_opt(s, 0));
+    match (date, time) {
+        (Some(d), Some(t)) => {
+            let y = i128::from(d.year()) + i128::from(cycles) * 400;
+            let y = i64::try_from(y).unwrap_or(if y < 0 { i64::MIN } else { i64::MAX });
+            (y.clamp(0, 9999), d.month(), d.day(), t.hour(), t.minute(), t.second())
+        }
+        _ => (1970, 1, 1, 0, 0, 0), // unreachable
+    }
 }
 
 /// A neutral theme: text sets its own fonts and colours, so these only matter for new objects.
@@ -322,5 +336,13 @@ mod tests {
         assert_eq!(civil(0), (1970, 1, 1, 0, 0, 0));
         assert_eq!(civil(951_782_400), (2000, 2, 29, 0, 0, 0));
         assert_eq!(civil(1_791_504_000 + 3_723), (2026, 10, 9, 1, 2, 3));
+        // Beyond chrono's year range the old `civil` still converted and clamped only the year to
+        // the W3CDTF `0..=9999` range; pin that (month/day/time keep the real instant), never the
+        // epoch, in both directions and at the `i64` extremes.
+        assert_eq!(civil(253_402_300_800), (9999, 1, 1, 0, 0, 0));
+        assert_eq!(civil(10_000_000_000_000), (9999, 5, 20, 17, 46, 40));
+        assert_eq!(civil(-10_000_000_000_000), (0, 8, 13, 6, 13, 20));
+        assert_eq!(civil(i64::MAX), (9999, 12, 4, 15, 30, 7));
+        assert_eq!(civil(i64::MIN), (0, 1, 27, 8, 29, 52));
     }
 }
